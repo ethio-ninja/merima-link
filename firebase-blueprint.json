@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a job seeker or employer profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["seeker", "employer"] },
+        "bio": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "companyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "A job posting created by an employer",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "companyName": { "type": "string" },
+        "location": { "type": "string" },
+        "description": { "type": "string" },
+        "requirements": { "type": "string" },
+        "salaryRange": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["Full-time", "Part-time", "Contract", "Freelance"]
+        },
+        "postedAt": { "type": "string", "format": "date-time" },
+        "employerId": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": [
+        "title",
+        "companyName",
+        "description",
+        "employerId",
+        "postedAt"
+      ]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "A job application submitted by a seeker",
+      "type": "object",
+      "properties": {
+        "jobId": { "type": "string" },
+        "seekerId": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Pending",
+            "Reviewed",
+            "Interviewing",
+            "Accepted",
+            "Rejected"
+          ]
+        },
+        "appliedAt": { "type": "string", "format": "date-time" },
+        "seekerName": { "type": "string" },
+        "seekerEmail": { "type": "string" }
+      },
+      "required": ["jobId", "seekerId", "status", "appliedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/jobs/{jobId}": {
+      "schema": "Job",
+      "description": "Job listings"
+    },
+    "/applications/{applicationId}": {
+      "schema": "Application",
+      "description": "Job applications"
+    }
+  }
+}

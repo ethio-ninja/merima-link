@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // User Validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 200 &&
+             data.role in ['seeker', 'employer'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 1000)) &&
+             (!('skills' in data) || (data.skills is list && data.skills.size() <= 50));
+    }
+
+    // Job Validation
+    function isValidJob(data) {
+      return data.keys().hasAll(['title', 'companyName', 'description', 'employerId', 'postedAt', 'isActive']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.companyName is string && data.companyName.size() <= 200 &&
+             data.description is string && data.description.size() <= 5000 &&
+             data.employerId == request.auth.uid &&
+             data.postedAt == request.time &&
+             data.isActive is bool &&
+             (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+             (!('requirements' in data) || (data.requirements is string && data.requirements.size() <= 5000)) &&
+             (!('type' in data) || (data.type in ['Full-time', 'Part-time', 'Contract', 'Freelance']));
+    }
+
+    // Application Validation
+    function isValidApplication(data) {
+      return data.keys().hasAll(['jobId', 'seekerId', 'status', 'appliedAt']) &&
+             isValidId(data.jobId) &&
+             data.seekerId == request.auth.uid &&
+             data.status == 'Pending' &&
+             data.appliedAt == request.time &&
+             (!('seekerName' in data) || (data.seekerName is string && data.seekerName.size() <= 200)) &&
+             (!('seekerEmail' in data) || (data.seekerEmail is string && data.seekerEmail.size() <= 200));
+    }
+
+    // --- Collections ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && isAdmin(); // Only admins can list users, or specific queries should be restricted
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().role == existing().role; // Role is immutable
+    }
+
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly viewable
+      allow create: if isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employer' && isValidJob(incoming());
+      allow update: if isOwner(existing().employerId) && isValidJob(incoming()) &&
+                    incoming().employerId == existing().employerId &&
+                    incoming().postedAt == existing().postedAt;
+      allow delete: if isOwner(existing().employerId);
+    }
+
+    match /applications/{applicationId} {
+      // Seekers see their own, employers see applications for their jobs
+      allow get: if isSignedIn() && (isOwner(existing().seekerId) || isOwner(get(/databases/$(database)/documents/jobs/$(existing().jobId)).data.employerId));
+      allow list: if isSignedIn() && (
+        resource.data.seekerId == request.auth.uid || 
+        get(/databases/$(database)/documents/jobs/$(resource.data.jobId)).data.employerId == request.auth.uid
+      );
+      
+      allow create: if isSignedIn() && 
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker' && 
+                    isValidApplication(incoming()) &&
+                    exists(/databases/$(database)/documents/jobs/$(incoming().jobId)) &&
+                    get(/databases/$(database)/documents/jobs/$(incoming().jobId)).data.isActive == true;
+
+      allow update: if isSignedIn() && (
+        // Seeker can only update nothing (maybe retraction in future?)
+        // Employer can update status
+        isOwner(get(/databases/$(database)/documents/jobs/$(existing().jobId)).data.employerId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+        incoming().status in ['Pending', 'Reviewed', 'Interviewing', 'Accepted', 'Rejected']
+      );
+    }
+
+    function isAdmin() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+  }
+}
